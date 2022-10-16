@@ -1,4 +1,3 @@
-Function Get-GraphComputerLastLogin {
     <#
     .SYNOPSIS
         Obtains details from the last logon to a specified computer name from Azure audit logs.  The computer must be Azure joined or Azure Hybrid joined for logins to appear.
@@ -25,18 +24,22 @@ Function Get-GraphComputerLastLogin {
             ValueFromPipeline = $true,
             ValueFromPipelineByPropertyName = $true,
             Position = 0 )]
-            [string] $ComputerName,
-        [Parameter(
-            Mandatory = $false)]
-            [switch] $Last30Days,
-        [Parameter(
-            Mandatory = $false)]
-            [switch] $NoDisconnect
+        [string] $ComputerName,
+        [Parameter()]
+        [switch] $Last30Days,
+        [Parameter()]
+        [switch] $NoDisconnect,
+        [Parameter()]
+        [string] $ClientId,
+        [Parameter()]
+        [string] $TenantId,
+        [Parameter()]
+        [string] $CertificateThumbprint
     )
      
     BEGIN {
         Write-Host -ForegroundColor Cyan "Prerequisite check starting"
-        if ( -not (Get-Module Microsoft.Graph -ListAvailable)) {
+        if ( -not (Get-Module Microsoft.Graph -ListAvailable)) { 
             Write-Host -ForegroundColor Yellow "Microsoft.Graph PowerShell Module not found.  Attempting install..."
             Install-Module Microsoft.Graph -Scope CurrentUser
             Import-Module Microsoft.Graph.AuditLog
@@ -45,9 +48,18 @@ Function Get-GraphComputerLastLogin {
             Write-Host -ForegroundColor Green "Microsoft.Graph PowerShell Module found.  Loading..."
             Import-Module Microsoft.Graph.Reports
         }
+        
         if (-not(((get-MgContext).scopes -contains "AuditLog.Read.All") -and ((Get-MgContext).Scopes -contains "Directory.Read.All"))){
             Write-Host -ForegroundColor Cyan "Microsoft Graph connection either does not exist or does not have correct scopes.  Connecting to Microsoft Graph"
-            Connect-MgGraph -Scopes "AuditLog.Read.All, Directory.Read.All"
+            
+            if (($ClientId) -or ($TenantId) -or ($CertificateThumbprint) ){
+                Write-Host -ForegroundColor Cyan "Connecting as an application"
+                Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -CertificateThumbprint $CertificateThumbprint
+            }
+            else{
+                Write-Host -ForegroundColor Cyan "Connecting as a user"
+                Connect-MgGraph -Scopes "AuditLog.Read.All, Directory.Read.All" | Out-Null
+            }
         }
         else{
             Write-Host -ForegroundColor Cyan "Valid Microsoft Graph connection already established."
@@ -60,11 +72,9 @@ Function Get-GraphComputerLastLogin {
         $filterDate = (Get-Date).AddDays(-30).Date
         $FilteredResults = $signins | Where-Object {$_.CreatedDateTime -ge $filterDate}
         if(-not$Last30Days){
-            Write-Host -ForegroundColor Yellow "NOTE: Dates are in American format"
             $FilteredResults | Select-Object @{N="ComputerName";E={$_.DeviceDetail.DisplayName}}, UserPrincipalName, CreatedDateTime -First 1 | Format-Table
         } 
         else{
-            Write-Host -ForegroundColor Yellow "NOTE: Dates are in American format"
             $FilteredResults | Select-Object @{N="ComputerName";E={$_.DeviceDetail.DisplayName}}, UserPrincipalName, CreatedDateTime | Out-GridView
         }
     }
@@ -75,6 +85,3 @@ Function Get-GraphComputerLastLogin {
         Disconnect-MgGraph | Out-Null
         }
     }
-}
-
-Get-GraphComputerLastLogin
